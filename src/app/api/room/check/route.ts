@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 import { redis } from "@/lib/redis";
 import crypto from "crypto";
 
+// 📝 Type definition for room data
+type RoomData = {
+  id: string;
+  passwordHash: string | null;
+  createdAt: number;
+};
+
 export async function POST(req: Request) {
   // ✅ req.json() ALREADY OBJECT deta hai
   const body = await req.json();
@@ -11,7 +18,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "roomId required" }, { status: 400 });
   }
 
-  const room = await redis.get(`room:${roomId}`);
+  const room = (await redis.get(`room:${roomId}`)) as RoomData | null;
 
   // ❌ room nahi mila → TTL expired
   if (!room) {
