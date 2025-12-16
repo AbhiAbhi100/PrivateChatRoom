@@ -1,5 +1,5 @@
 "use client"
-
+import { encryptText, decryptText } from "@/lib/crypto"
 import { useEffect, useState } from "react"
 import { useParams } from "next/navigation"
 import { Realtime } from "@upstash/realtime"
@@ -27,11 +27,27 @@ export default function RoomPage() {
   // ========================
   // HELPERS
   // ========================
-  const fetchMessages = async () => {
-    const res = await fetch(`/api/messages/get?roomId=${roomId}`)
-    const data = await res.json()
-    setMessages(data.messages || [])
-  }
+const fetchMessages = async () => {
+  const res = await fetch(`/api/messages/get?roomId=${roomId}`)
+  const data = await res.json()
+
+  if (!password) return
+
+  const decrypted = await Promise.all(
+    (data.messages || []).map(async (m: any) => {
+      try {
+        const enc = JSON.parse(m.text)
+        const plain = await decryptText(enc, password)
+        return { ...m, text: plain }
+      } catch {
+        return { ...m, text: "🔒 Unable to decrypt" }
+      }
+    })
+  )
+
+  setMessages(decrypted)
+}
+
 
   const fetchTTL = async () => {
     const res = await fetch(`/api/room/ttl?roomId=${roomId}`)
@@ -105,21 +121,24 @@ export default function RoomPage() {
   // SEND MESSAGE
   // ========================
   const sendMessage = async () => {
-    if (!text.trim() || !sender) return
+  if (!text.trim() || !sender || !password) return
 
-    await fetch("/api/messages/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        roomId,
-        sender,
-        text,
-      }),
-    })
+  const encrypted = await encryptText(text, password)
 
-    setText("")
-    fetchMessages()
-  }
+  await fetch("/api/messages/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      roomId,
+      sender,
+      text: JSON.stringify(encrypted), // 🔐 encrypted
+    }),
+  })
+
+  setText("")
+  fetchMessages()
+}
+
 
   // ========================
   // DESTROY ROOM
