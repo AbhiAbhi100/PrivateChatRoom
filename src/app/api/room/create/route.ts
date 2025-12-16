@@ -1,42 +1,33 @@
-//serverless Api ka rule : 1>Function chalega 2>Kaam karega 3>Response deke khatam
+import { NextResponse } from "next/server";
+import { redis } from "@/lib/redis";
+import crypto from "crypto";
+import { nanoid } from "nanoid";
 
-import { NextResponse } from "next/server"
-import { redis } from "@/lib/redis"
-import crypto from "crypto"
-
-const ROOM_TTL_SECONDS = 60 * 10 // 10 minutes
+const ROOM_TTL = 60 * 10; // ⏱️ 10 minutes
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}))
-  const { password } = body
+  const body = await req.json();
+  const { password } = body;
 
-  const roomId = crypto.randomUUID()
+  const roomId = nanoid();
 
-  const passwordHash = password
-    ? crypto.createHash("sha256").update(password).digest("hex")
-    : null
+  let passwordHash: string | null = null;
 
-  await redis.set(
-    `room:${roomId}`,
-    JSON.stringify({
-      createdAt: Date.now(),
-      passwordHash,
-    }),
-    "EX",
-    ROOM_TTL_SECONDS
-  )
+  if (password) {
+    passwordHash = crypto.createHash("sha256").update(password).digest("hex");
+  }
 
-  return NextResponse.json({
-    roomId,
-    protected: !!password,
-  })
+  const roomData = {
+    id: roomId,
+    passwordHash,
+    createdAt: Date.now(),
+  };
+
+  // ✅ ROOM META - Upstash Redis handles JSON serialization automatically
+  await redis.set(`room:${roomId}`, roomData, { ex: ROOM_TTL });
+
+  // ✅ MESSAGE LIST TTL
+  await redis.expire(`messages:${roomId}`, ROOM_TTL);
+
+  return NextResponse.json({ roomId });
 }
-
-
-//CRUX (yaad rakh)
-/**
- * route.ts = serverless function
- * POST()=HTTP POST handler
- * crypto.randomUUID()=random unique id banane ke liye
- */
-
