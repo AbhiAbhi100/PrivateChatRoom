@@ -1,33 +1,47 @@
 import { NextResponse } from "next/server";
 import { redis } from "@/lib/redis";
-import crypto from "crypto";
-import { nanoid } from "nanoid";
 
 const ROOM_TTL = 60 * 10; // ⏱️ 10 minutes
 
-export async function POST(req: Request) {
-  const body = await req.json();
-  const { password } = body;
+// Generate unique 6-digit room code
+async function generateRoomCode(): Promise<string> {
+  let roomCode: string;
+  let exists: number;
+  let attempts = 0;
+  const maxAttempts = 10;
 
-  const roomId = nanoid();
+  do {
+    if (attempts >= maxAttempts) {
+      throw new Error("Failed to generate unique room code");
+    }
+    roomCode = Math.floor(100000 + Math.random() * 900000).toString();
+    exists = await redis.exists(`room:${roomCode}`);
+    attempts++;
+  } while (exists > 0);
 
-  let passwordHash: string | null = null;
+  return roomCode;
+}
 
-  if (password) {
-    passwordHash = crypto.createHash("sha256").update(password).digest("hex");
+export async function POST() {
+  try {
+    const roomCode = await generateRoomCode();
+
+    const roomData = {
+      createdAt: Date.now(),
+    };
+
+    // ✅ ROOM META - Store with room code as key
+    await redis.set(`room:${roomCode}`, roomData, { ex: ROOM_TTL });
+
+    // ✅ MESSAGE LIST TTL
+    await redis.expire(`messages:${roomCode}`, ROOM_TTL);
+
+    return NextResponse.json({ roomCode });
+  } catch (error) {
+    console.error("Room creation error:", error);
+    return NextResponse.json(
+      { error: "Failed to create room" },
+      { status: 500 }
+    );
   }
-
-  const roomData = {
-    id: roomId,
-    passwordHash,
-    createdAt: Date.now(),
-  };
-
-  // ✅ ROOM META - Upstash Redis handles JSON serialization automatically
-  await redis.set(`room:${roomId}`, roomData, { ex: ROOM_TTL });
-
-  // ✅ MESSAGE LIST TTL
-  await redis.expire(`messages:${roomId}`, ROOM_TTL);
-
-  return NextResponse.json({ roomId });
 }

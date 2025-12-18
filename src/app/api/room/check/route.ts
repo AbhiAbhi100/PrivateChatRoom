@@ -1,45 +1,38 @@
 import { NextResponse } from "next/server";
 import { redis } from "@/lib/redis";
-import crypto from "crypto";
 
 // 📝 Type definition for room data
 type RoomData = {
-  id: string;
-  passwordHash: string | null;
   createdAt: number;
 };
 
 export async function POST(req: Request) {
-  // ✅ req.json() ALREADY OBJECT deta hai
-  const body = await req.json();
-  const { roomId, password } = body;
+  try {
+    const body = await req.json();
+    const { roomCode } = body;
 
-  if (!roomId) {
-    return NextResponse.json({ error: "roomId required" }, { status: 400 });
-  }
-
-  const room = (await redis.get(`room:${roomId}`)) as RoomData | null;
-
-  // ❌ room nahi mila → TTL expired
-  if (!room) {
-    return NextResponse.json({ error: "ROOM_EXPIRED" }, { status: 410 });
-  }
-
-  // ✅ Upstash Redis automatically deserializes JSON, no need for JSON.parse
-  // const room = JSON.parse(roomRaw) // ❌ This causes the error
-
-  // 🔐 PASSWORD CHECK
-  if (room.passwordHash) {
-    if (!password) {
-      return NextResponse.json({ error: "PASSWORD_REQUIRED" }, { status: 401 });
+    if (!roomCode) {
+      return NextResponse.json({ error: "roomCode required" }, { status: 400 });
     }
 
-    const hash = crypto.createHash("sha256").update(password).digest("hex");
-
-    if (hash !== room.passwordHash) {
-      return NextResponse.json({ error: "WRONG_PASSWORD" }, { status: 403 });
+    // Validate 6-digit format
+    if (!/^\d{6}$/.test(roomCode)) {
+      return NextResponse.json(
+        { error: "Invalid room code format" },
+        { status: 400 }
+      );
     }
-  }
 
-  return NextResponse.json({ ok: true });
+    const room = (await redis.get(`room:${roomCode}`)) as RoomData | null;
+
+    // ❌ room not found → TTL expired
+    if (!room) {
+      return NextResponse.json({ error: "ROOM_EXPIRED" }, { status: 410 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error("Room check error:", error);
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
 }

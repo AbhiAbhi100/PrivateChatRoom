@@ -10,28 +10,44 @@ type MessageData = {
 };
 
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const roomId = searchParams.get("roomId");
+  try {
+    const { searchParams } = new URL(req.url);
+    const roomCode = searchParams.get("roomCode");
 
-  if (!roomId) {
-    return NextResponse.json({ error: "roomId required" }, { status: 400 });
-  }
-
-  const exists = await redis.exists(`room:${roomId}`);
-  if (!exists) {
-    return NextResponse.json({ error: "ROOM_EXPIRED" }, { status: 410 });
-  }
-
-  const raw = await redis.lrange(`messages:${roomId}`, 0, -1);
-
-  // ✅ For list operations, manual JSON parsing is needed
-  const messages: MessageData[] = raw.map((m): MessageData => {
-    try {
-      return typeof m === "string" ? JSON.parse(m) : m;
-    } catch {
-      return m as unknown as MessageData;
+    if (!roomCode) {
+      return NextResponse.json({ error: "roomCode required" }, { status: 400 });
     }
-  });
 
-  return NextResponse.json({ messages });
+    // Validate 6-digit format
+    if (!/^\d{6}$/.test(roomCode)) {
+      return NextResponse.json(
+        { error: "Invalid room code format" },
+        { status: 400 }
+      );
+    }
+
+    const exists = await redis.exists(`room:${roomCode}`);
+    if (!exists) {
+      return NextResponse.json({ error: "ROOM_EXPIRED" }, { status: 410 });
+    }
+
+    const raw = await redis.lrange(`messages:${roomCode}`, 0, -1);
+
+    // ✅ For list operations, manual JSON parsing is needed
+    const messages: MessageData[] = raw.map((m): MessageData => {
+      try {
+        return typeof m === "string" ? JSON.parse(m) : m;
+      } catch {
+        return m as unknown as MessageData;
+      }
+    });
+
+    return NextResponse.json({ messages });
+  } catch (error) {
+    console.error("Messages get error:", error);
+    return NextResponse.json(
+      { error: "Internal error", messages: [] },
+      { status: 500 }
+    );
+  }
 }
